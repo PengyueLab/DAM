@@ -1,0 +1,51 @@
+########################################################################
+################## This code identifies the best partition
+######### a pseudo data
+N_pair=10000				### number of case-control pairs
+Y_all=c(rep(1,N_pair),rep(0,N_pair))	### outcome in equation 1-4
+Pair_ID=c(c(1:N_pair),c(1:N_pair))	### pair ID 
+X1=c(rbinom(N_pair,4,0.3),rbinom(N_pair,4,0.1))		### dose levels for X1
+X2=c(rbinom(N_pair,4,0.3),rbinom(N_pair,4,0.1))		### dose levels for X2
+X12=paste0(X1,"+",X2)			### dose levels for drug combination
+
+######### read all 4-group partitions as an example
+All_DRR=read.table("Partition_4G.txt",header=TRUE)
+### view an example
+### rows 1-5: dose level 0 -> 4
+### columns 1-5: dose level 0 -> 4
+### numbers in matrix represent partitions
+matrix(All_DRR[1,],5,5)
+
+###### Dictionary for dose levels (used to map X12 and a row in All_DRR)
+Temp_combo=expand.grid(c(0:4),c(0:4))
+Dictionary_pattern_data=paste0(Temp_combo$Var1,"+",Temp_combo$Var2)
+### Dictionary_pattern_data are matched to the partition
+### rows 1-5: dose level 0 -> 4
+### columns 1-5: dose level 0 -> 4
+matrix(Dictionary_pattern_data,5,5)
+
+######### over all partitions
+loop_AIC_BIC=matrix(0,nrow(All_DRR),2)	### to save AIC and BIC values
+library(survival)
+
+###### to search all DRRs
+for(loop_j in 1:nrow(All_DRR))
+{ ###### Map dose levels of two drugs to partitions
+  sub_location=match(X12,Dictionary_pattern_data)
+  X_mapped=(as.numeric(All_DRR[loop_j,paste0("V",c(1:25))])[sub_location])
+  ### view an example
+  ### loop_j=1 -> exposed-vs-unexposed model
+  ### matrix(All_DRR[1,],5,5)
+  ### table(X1>0,X2>0)
+  ### matrix(All_DRR[1,],5,5)
+  ### table(X_mapped)	### equivalent to "table(X1>0,X2>0)"
+
+  ###### CLRM
+  res_clogit_DAM=clogit(Y_all~as.character(X_mapped)+strata(Pair_ID))
+  loop_AIC_BIC[loop_j,1]=AIC(res_clogit_DAM)
+  loop_AIC_BIC[loop_j,2]=BIC(res_clogit_DAM)
+} ###### End loop_J
+
+which.min(loop_AIC_BIC[,1])	### optimal AIC location 
+which.min(loop_AIC_BIC[,2])	### optimal BIC location
+

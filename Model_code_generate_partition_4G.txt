@@ -1,0 +1,116 @@
+########################################################################
+################## This code generates 4 group partitions
+################## General settings
+N_group=4	### number of groups; (K in methods)
+Min_size=4	### minimum size in each group; (N_1 in methods)
+Max_size_null=10	### maximum size of null group including (0,0); (N_0 in methods)
+N_group=N_group-1	### number of potential null groups with size <25
+
+################## All null groups
+######### all null groups
+data_null_group=read.table("Null_groups.txt",header=TRUE)
+location_group=c(1:nrow(data_null_group))
+###### V1-25: location of null group in "as.vector" form of a 5-by-5 matrix
+###### Size: size of the null group
+###### an example: rows/columns 1-5 = dose levels 0-4
+matrix(data_null_group[20,c(1:25)],5,5)
+
+################## Compute distances between cells in a 5-by-5 matrix
+######### pairwise Manhattan distances between cells
+Dist_XY=expand.grid(c(0:4),c(0:4))
+Dist_XY$Location=c(1:nrow(Dist_XY))
+Dist_All=expand.grid(Dist_XY$Location,Dist_XY$Location)
+Dist_All$X1=Dist_XY$Var1[match(Dist_All$Var1,Dist_XY$Location)]
+Dist_All$Y1=Dist_XY$Var2[match(Dist_All$Var1,Dist_XY$Location)]
+Dist_All$X2=Dist_XY$Var1[match(Dist_All$Var2,Dist_XY$Location)]
+Dist_All$Y2=Dist_XY$Var2[match(Dist_All$Var2,Dist_XY$Location)]
+Dist_All$Dist=abs(Dist_All$X2-Dist_All$X1)+abs(Dist_All$Y2-Dist_All$Y1)
+###### Var 1: location in "as.vector" for cell 1
+###### Var 2: location in "as.vector" for cell 2
+###### X1: dose 1 for cell 1
+###### Y1: dose 2 for cell 1
+###### X2: dose 1 for cell 2
+###### Y2: dose 2 for cell 2
+###### Dist: Manhattan distance between cells 1 and 2
+######### all pairs with Manhattan distance = 1, which can be used to defined adjacent dose levels
+Dist_All=Dist_All[which(Dist_All$Dist==1),]
+Dist_All=Dist_All[order(Dist_All$Var1,Dist_All$Var2),]
+
+################## The following code is used to determine size of set difference
+Pair_all=as.data.frame(expand.grid(location_group,location_group))
+Pair_all$Size_diff=NA
+for(loop_i in 1:nrow(Pair_all))
+{  Pair_all$Size_diff[loop_i]=sum(data_null_group[Pair_all$Var2[loop_i],c(1:25)]==1 & 
+                                  data_null_group[Pair_all$Var1[loop_i],c(1:25)]==0)  }
+rm(loop_i)
+Pair_all$ID=paste0(Pair_all$Var1,"+",Pair_all$Var2)
+Pair_all=Pair_all[Pair_all$Size_diff>=Min_size,]
+
+################## Generate all permutations of null groups
+potential_G1=location_group[data_null_group$Size<=Max_size_null]
+potential_G2=location_group[data_null_group$Size>Min_size & data_null_group$Size<=(21-Min_size)]
+potential_G3=location_group[data_null_group$Size>Min_size]
+A_combination=expand.grid(potential_G1,potential_G2,potential_G3)
+
+################## remove combinations by minimum size in each group 
+######### Compare 2nd group to 1st group
+Temp_ID=paste0(A_combination[,1],"+",A_combination[,2])
+A_combination=A_combination[which(Temp_ID %in% Pair_all$ID),]
+######### Compare 3rd group to 2nd group
+Temp_ID=paste0(A_combination[,2],"+",A_combination[,3])
+A_combination=A_combination[which(Temp_ID %in% Pair_all$ID),]
+A_combination=as.matrix(A_combination)
+
+######### define groups in partitions based on set difference
+A_output=matrix(N_group,nrow(A_combination),25)
+for(loop_b in 1:nrow(A_combination))	###### begin loop_b
+{ B_group=data_null_group[A_combination[loop_b,],c(1:25)]
+  for(loop_c in N_group:1)
+  { A_output[loop_b,which(B_group[loop_c,]==1)]=(loop_c-1) }
+} ###### end_loop b
+
+######### remove duplicate
+A_output=unique(A_output)
+
+######### remove combinations by minimum size in each group   
+B_check_size=rowSums(A_output==1)
+B_check_size=pmin(B_check_size,rowSums(A_output==2))
+B_check_size=pmin(B_check_size,rowSums(A_output==3))
+A_output=A_output[which(B_check_size>(Min_size-1)),]
+
+######### check continuity
+A_check_continuity=matrix(0,nrow(A_output),(N_group-1))
+for(loop_d in 1:nrow(A_output))	###### begin loop_d
+{ for(loop_e in 1:(N_group-1))				###### begin loop_e
+  { E_location=which(A_output[loop_d,]==loop_e)	###### location of current group
+    E_location_in=E_location[1]		###### starting cell
+    E_location_out=E_location[-1]	###### remaining cells
+    ###### use a while loop to check continuity
+    while_thres=1
+    while(while_thres>0) ###### begin while loop 
+    { while_near=Dist_All$Var2[Dist_All$Var1 %in% E_location_in] ### cells adjacent to E_location_in 
+      while_new=intersect(while_near,E_location_out) ### cells continuous to E_location_in 
+      while_thres=length(while_new) ### >0, if E_location_in can be increased
+      E_location_in=union(E_location_in,while_new) ### increasing E_location_in 
+      E_location_out=setdiff(E_location_out,while_new) ### decreasing E_location_out
+      rm(while_near)
+      rm(while_new)  }  ###### end while loop 
+    A_check_continuity[loop_d,loop_e]=length(E_location_out) } ###### end_loop e
+} ###### end_loop d
+
+###### remove by continuity
+A_output=A_output[which(rowSums(A_check_continuity)==0),]
+
+################## Final output
+###### each row represents a partition in "as.vector" format of a 5-by-5 matrix
+
+##################
+######### Duplications due to symmetry, which don't affect the estimation of dose-risk relation 
+A_output_T=A_output[,as.vector(t(matrix(c(1:25),5,5)))] ### transposed partitions
+A_output_T_location_1=which(A_output_T==1)
+A_output_T_location_2=which(A_output_T==2)
+A_output_T[A_output_T_location_1]=2
+A_output_T[A_output_T_location_2]=1
+A_check_symmetry=(rowSums(abs(A_output_T-A_output)==0)==25)+0	### 1 if symmetry
+
+
